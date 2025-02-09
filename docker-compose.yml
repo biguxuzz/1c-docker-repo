@@ -1,0 +1,62 @@
+services:
+  1c-crs:
+    image: debian:latest
+    container_name: 1c-crs-apache
+    restart: always
+    hostname: 1c-crs
+    environment:
+      CRS1CV8_PLATFORM: ${CRS1CV8_PLATFORM}
+      DEB_PACKAGE_URL_COMMON: ${DEB_PACKAGE_URL_COMMON}
+      DEB_PACKAGE_URL_COMMON_NLS: ${DEB_PACKAGE_URL_COMMON_NLS}
+      DEB_PACKAGE_URL_SERVER: ${DEB_PACKAGE_URL_SERVER}
+      DEB_PACKAGE_URL_SERVER_NLS: ${DEB_PACKAGE_URL_SERVER_NLS}
+      DEB_PACKAGE_URL_CRS: ${DEB_PACKAGE_URL_CRS}
+      DEB_PACKAGE_URL_WS: ${DEB_PACKAGE_URL_WS}
+      DEB_PACKAGE_URL_WS_NLS: ${DEB_PACKAGE_URL_WS_NLS}
+    volumes:
+      - crs_www:/var/www/crs
+    ports:
+      - "8082:80"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo ">>> Установка зависимостей..."
+        apt update && apt install -y wget apache2 && \
+        
+        echo ">>> Загрузка и установка 1С..."
+        wget -O /tmp/1c_COMMON.deb $DEB_PACKAGE_URL_COMMON && \
+        wget -O /tmp/1c_COMMON_NLS.deb $DEB_PACKAGE_URL_COMMON_NLS && \
+        wget -O /tmp/1c_SERVER.deb $DEB_PACKAGE_URL_SERVER && \
+        wget -O /tmp/1c_SERVER_NLS.deb $DEB_PACKAGE_URL_SERVER_NLS && \
+        wget -O /tmp/1c_CRS.deb $DEB_PACKAGE_URL_CRS && \
+        wget -O /tmp/1c_WS.deb $DEB_PACKAGE_URL_WS && \
+        wget -O /tmp/1c_WS_NLS.deb $DEB_PACKAGE_URL_WS_NLS && \
+        dpkg -i /tmp/1c_*.deb && \
+
+        echo ">>> Создание директорий..."
+        mkdir -p /var/www/crs && \
+        chown -R www-data:www-data /var/www/crs && \
+
+        echo ">>> Генерация файла репозитория 1С..."
+        echo '<?xml version="1.0" encoding="UTF-8"?>
+        <repository connectString="tcp://localhost:1542" />' > /var/www/crs/repo.1ccr && \
+
+        echo ">>> Конфигурация Apache..."
+        echo 'LoadModule _1cws_module "/opt/1cv8/x86_64/${CRS1CV8_PLATFORM}/wsap24.so"
+
+        Alias "/crs" "/var/www/crs/"
+        <Directory /var/www/crs>
+          DirectorySlash Off
+          SetHandler 1cws-process
+          ManagedApplicationDescriptor /var/www/crs/repo.1ccr
+          Order allow,deny
+          Allow from All
+        </Directory>' > /etc/apache2/conf-enabled/httpd.conf && \
+
+        echo ">>> Запуск процессов..."
+        /opt/1cv8/x86_64/${CRS1CV8_PLATFORM}/crserver -port 1542 -d /var/www/crs/ & \
+        apache2ctl -D FOREGROUND
+
+volumes:
+  crs_www:
+
